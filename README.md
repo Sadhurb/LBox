@@ -74,7 +74,11 @@
 *   **"App bundle not found! Unable to read LCAppInfo.plist" Error**:
     You may encounter this error popup immediately after installing an app and trying to launch it for the first time.
     *   **Solution**: Simply dismiss the error and tap the **Run** button again. The app should launch successfully, and this error will not appear on subsequent launches.
-
+*   **Unable to select LiveContainer Directory**:
+    If the file picker does not appear or you cannot select a folder during the initial setup:
+    *   **Solution**: Open LiveContainer, find **LBox** in the "My Apps" list, press and hold the icon, tap **Settings**, and enable **Fix File Picker**. Then try selecting the directory again.
+    <img src="./screenshots/how_to_fix_file_picker.png" width="300" alt="Fix File Picker Settings">
+    
 ## 📂 File Structure
 
 *   AppData.swift: Handles repository parsing, app models, and data persistence.
