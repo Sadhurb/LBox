@@ -13,7 +13,7 @@
 
 ## 📥 Download
 
-**[Download Latest IPA](https://github.com/Lolendor/LBox/releases/download/build-1/LBox.ipa)**
+**[Download Latest IPA](https://github.com/Lolendor/LBox/releases/download/build-2/LBox.ipa)**
 
 ## 🚀 Overview
 
