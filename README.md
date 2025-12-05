@@ -9,6 +9,8 @@
 
 ---
 
+> **⚡ Quick Start**: To enable automatic app installation to LiveContainer, select its directory on your device and enable **"Auto .ipa to .app"** in LBox Settings.
+
 ## 🚀 Overview
 
 **LBox** bridges the gap between finding apps and running them on iOS. Instead of manually searching for IPA files and moving them around the file system, LBox allows you to add repositories (similar to AltStore or ESign), download apps in the background, and automatically extract them into your LiveContainer storage.
