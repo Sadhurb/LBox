@@ -81,6 +81,12 @@
 * Developed by Lolendor.
 * Designed to work with LiveContainer.
 
+## Support the project
+
+If you find this project useful:
+
+- **TON / USDT (TON)**  `UQAyBchGEKi9NnNQ3AKMQMuO-SGEhMIAKFAbkwwrsiOPj9Gy`
+
 ## 📄 License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
