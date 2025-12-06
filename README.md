@@ -29,9 +29,12 @@
 
 *   **Repository Management**:
     *   Add and manage unlimited public repositories (JSON format).
+    *   **Remote Folders (Repo Lists)**: Subscribe to a single URL (text file) to automatically fetch and maintain a list of multiple repositories.
     *   Organize sources into folders.
     *   Import/Export repository lists via JSON or Clipboard.
-*   **LiveContainer Integration**:
+*   **App Management & Updates**:
+    *   **Update Detection**: Automatically compares installed apps with repository versions and notifies you of available updates.
+    *   **Smart Updates**: Update installed apps directly while **preserving user data** and configurations.
     *   Auto-detects apps installed within the LiveContainer folder.
     *   **One-tap Launch**: Open apps directly from LBox using the `livecontainer://` URL scheme.
     *   **Auto-Install**: Automatically unzips and moves downloaded `.ipa` files to the specific LiveContainer application directory.
@@ -48,9 +51,11 @@
 ## 🛠 How it Works
 
 1.  **Initial Setup**: Upon first launch, LBox will ask for the LiveContainer directory. Select the root folder of your installed LiveContainer app. This step is required for auto-installation and launching apps.
-2.  **Add a Source**: Input a URL to a compliant app repository JSON.
+2.  **Add a Source**: Input a URL to a compliant app repository JSON **or** add a "Folder" utilizing a list URL to batch-import repos.
 3.  **Browse & Download**: Find the app you want and tap "Get". LBox handles the download in the background.
-4.  **Install**: LBox detects `.ipa` files. With "Auto .ipa to .app" enabled in Settings, it extracts the payload directly to your LiveContainer/Applications folder.
+4.  **Install/Update**: 
+    *   **New Install**: LBox extracts the `.ipa` to your Applications folder.
+    *   **Update**: If the app exists, LBox offers to update it while keeping your documents and settings intact.
 5.  **Launch**: Navigate to the "Apps" tab and tap the app to run it instantly via LiveContainer.
 
 ## ⚙️ Build Instructions

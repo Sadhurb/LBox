@@ -9,11 +9,13 @@
 /* Begin PBXBuildFile section */
 		3927FD652EE2C1B200E436A0 /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 3927FD642EE2C1B200E436A0 /* ZIPFoundation */; };
 		394B47FC2EE11156009AFBEE /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 394B47FB2EE11156009AFBEE /* ZIPFoundation */; };
+		39709BC72EE36F9F005B360F /* default_repos.csv in Resources */ = {isa = PBXBuildFile; fileRef = 39709BC62EE36F97005B360F /* default_repos.csv */; };
 		39AD5D552EE2AA020010C49F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 39AD5D542EE2AA020010C49F /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		394B47E02EE11128009AFBEE /* LBox.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LBox.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		39709BC62EE36F97005B360F /* default_repos.csv */ = {isa = PBXFileReference; lastKnownFileType = text; path = default_repos.csv; sourceTree = "<group>"; };
 		39AD5D542EE2AA020010C49F /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -41,6 +43,7 @@
 		394B47D72EE11128009AFBEE = {
 			isa = PBXGroup;
 			children = (
+				39709BC62EE36F97005B360F /* default_repos.csv */,
 				394B47E22EE11128009AFBEE /* LBox */,
 				394B47E12EE11128009AFBEE /* Products */,
 				39AD5D542EE2AA020010C49F /* README.md */,
@@ -124,6 +127,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				39709BC72EE36F9F005B360F /* default_repos.csv in Resources */,
 				39AD5D552EE2AA020010C49F /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -282,7 +286,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = BebraGames.LBox;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -315,7 +319,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = BebraGames.LBox;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;

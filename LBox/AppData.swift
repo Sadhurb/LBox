@@ -1,3 +1,10 @@
+//
+//  AppData.swift
+//  LBox
+//
+//  Created by Alexey Olendor on 12/3/25.
+//
+
 import Foundation
 import Combine
 import SwiftUI
@@ -113,6 +120,7 @@ struct LocalApp: Identifiable, Hashable {
     var id: String { url.path }
     let name: String
     let bundleID: String
+    let version: String?
     let url: URL
     let iconURL: URL? // Local file URL to the icon if found
 }
@@ -139,15 +147,28 @@ struct ExportableRepo: Codable {
     let url: URL?
     let isEnabled: Bool?
     let children: [ExportableRepo]?
+    let repoListURL: URL?
     
     init(_ repo: SavedRepo, onlyEnabled: Bool = false) {
         self.name = repo.name
         self.url = repo.url
         if onlyEnabled { self.isEnabled = nil } else { self.isEnabled = repo.isEnabled }
-        if let kids = repo.children {
+        self.repoListURL = repo.repoListURL
+        
+        // If this is a remote folder (has repoListURL), do not include children in export
+        if repo.repoListURL != nil {
+            self.children = nil
+        } else if let kids = repo.children {
             let filtered = onlyEnabled ? kids.filter { $0.hasEnabledContent } : kids
             self.children = filtered.map { ExportableRepo($0, onlyEnabled: onlyEnabled) }
-        } else { self.children = nil }
+        } else {
+            self.children = nil
+        }
+    }
+    
+    enum CodingKeys: String, CodingKey {
+        case name, url, isEnabled, children
+        case repoListURL = "childrenUrl"
     }
     
     init(from decoder: Decoder) throws {
@@ -156,13 +177,15 @@ struct ExportableRepo: Codable {
         self.url = try container.decodeIfPresent(URL.self, forKey: .url)
         self.isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         self.children = try container.decodeIfPresent([ExportableRepo].self, forKey: .children)
+        self.repoListURL = try container.decodeIfPresent(URL.self, forKey: .repoListURL)
     }
     
     func toSavedRepo() -> SavedRepo {
         let enabled = isEnabled ?? true
-        if let children = children {
-            let mappedChildren = children.map { $0.toSavedRepo() }
-            var folder = SavedRepo(folderName: name, children: mappedChildren)
+        if repoListURL != nil || children != nil {
+            // If it has children or is a remote folder
+            let mappedChildren = children?.map { $0.toSavedRepo() } ?? []
+            var folder = SavedRepo(folderName: name, children: mappedChildren, repoListURL: repoListURL)
             folder.isEnabled = enabled
             return folder
         } else {
@@ -178,20 +201,32 @@ struct SavedRepo: Codable, Identifiable, Hashable, Sendable {
     var iconURL: String?
     var isEnabled: Bool
     var children: [SavedRepo]?
-    var appCount: Int = 0 
+    var appCount: Int = 0
+    
+    var repoListURL: URL? // URL for subscription folder source
     
     // Cache the apps to persist between launches
-    var cachedApps: [AppItem]? = nil 
+    var cachedApps: [AppItem]? = nil
     
     var fetchStatus: RepoFetchStatus = .idle
     
     var isFolder: Bool { children != nil }
+    var isRemoteFolder: Bool { repoListURL != nil }
     
     var totalAppCount: Int {
         if let children = children {
             return children.reduce(0) { $0 + $1.totalAppCount }
         } else {
             return isEnabled ? appCount : 0
+        }
+    }
+    
+    // Counts the number of repos (leaves) inside recursively
+    var totalRepoCount: Int {
+        if let children = children {
+            return children.reduce(0) { $0 + $1.totalRepoCount }
+        } else {
+            return 1
         }
     }
     
@@ -219,15 +254,18 @@ struct SavedRepo: Codable, Identifiable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, url, iconURL, isEnabled, children, appCount, cachedApps
+        case repoListURL = "childrenUrl"
     }
     
     init(url: URL, name: String? = nil, iconURL: String? = nil, isEnabled: Bool = true, appCount: Int = 0) {
         self.id = url.absoluteString; self.url = url; self.name = name ?? "Unknown"; self.iconURL = iconURL; self.isEnabled = isEnabled; self.children = nil; self.appCount = appCount
+        self.repoListURL = nil
         self.cachedApps = nil
     }
     
-    init(folderName: String, children: [SavedRepo] = []) {
+    init(folderName: String, children: [SavedRepo] = [], repoListURL: URL? = nil) {
         self.id = UUID().uuidString; self.name = folderName; self.url = nil; self.iconURL = nil; self.isEnabled = true; self.children = children; self.appCount = 0
+        self.repoListURL = repoListURL
         self.cachedApps = nil
     }
     
@@ -244,6 +282,7 @@ struct SavedRepo: Codable, Identifiable, Hashable, Sendable {
         self.children = try container.decodeIfPresent([SavedRepo].self, forKey: .children)
         self.appCount = try container.decodeIfPresent(Int.self, forKey: .appCount) ?? 0
         self.cachedApps = try container.decodeIfPresent([AppItem].self, forKey: .cachedApps)
+        self.repoListURL = try container.decodeIfPresent(URL.self, forKey: .repoListURL)
     }
     
     func encode(to encoder: Encoder) throws {
@@ -252,16 +291,19 @@ struct SavedRepo: Codable, Identifiable, Hashable, Sendable {
         try container.encode(iconURL, forKey: .iconURL); try container.encode(isEnabled, forKey: .isEnabled)
         try container.encode(children, forKey: .children); try container.encode(appCount, forKey: .appCount)
         try container.encode(cachedApps, forKey: .cachedApps)
+        try container.encode(repoListURL, forKey: .repoListURL)
     }
     
     func hash(into hasher: inout Hasher) {
         hasher.combine(id); hasher.combine(name); hasher.combine(url); hasher.combine(iconURL)
         hasher.combine(isEnabled); hasher.combine(children); hasher.combine(appCount); hasher.combine(fetchStatus)
+        hasher.combine(repoListURL)
     }
     
     static func == (lhs: SavedRepo, rhs: SavedRepo) -> Bool {
         return lhs.id == rhs.id && lhs.name == rhs.name && lhs.url == rhs.url && lhs.iconURL == rhs.iconURL &&
-               lhs.isEnabled == rhs.isEnabled && lhs.children == rhs.children && lhs.appCount == rhs.appCount && lhs.fetchStatus == rhs.fetchStatus
+               lhs.isEnabled == rhs.isEnabled && lhs.children == rhs.children && lhs.appCount == rhs.appCount && lhs.fetchStatus == rhs.fetchStatus &&
+               lhs.repoListURL == rhs.repoListURL
     }
 }
 
@@ -276,12 +318,15 @@ actor Semaphore {
 @MainActor
 class AppStoreViewModel: ObservableObject {
     @Published var savedRepos: [SavedRepo] = []
-    @Published var displayApps: [AppItem] = [] 
-    @Published var allAppsByVariant: [String: [AppItem]] = [:] 
+    @Published var displayApps: [AppItem] = []
+    @Published var allAppsByVariant: [String: [AppItem]] = [:]
     
     @Published var searchText: String = ""
     @Published var isLoading = false
     @Published var selectedRepoID: String? = nil
+    
+    // Updates
+    @Published var availableUpdates: [String: String] = [:] // BundleID -> Latest Version
     
     // Sort Options
     @Published var appSortOrder: AppSortOption = .name {
@@ -306,6 +351,13 @@ class AppStoreViewModel: ObservableObject {
     
     @Published var isAutoUnzipEnabled: Bool = false { didSet { UserDefaults.standard.set(isAutoUnzipEnabled, forKey: "kAutoUnzipEnabled") } }
     private let kSavedReposKey = "kSavedReposKey"
+    
+    // MARK: - Persistence Path
+    private var reposFileURL: URL {
+        // Use Application Support so it isn't visible in user's Documents/Downloads
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("repos.json")
+    }
     
     init() {
         self.isAutoUnzipEnabled = UserDefaults.standard.bool(forKey: "kAutoUnzipEnabled")
@@ -340,14 +392,103 @@ class AppStoreViewModel: ObservableObject {
         .assign(to: &$filteredApps)
     }
     
+    // MARK: - Update Logic
+    
+    func checkForUpdates(installedApps: [LocalApp]) {
+        Task {
+            // Flatten all enabled apps from repos
+            let allStoreApps = getEnabledLeafRepos().flatMap { $0.cachedApps ?? [] }
+            
+            // Group store apps by Bundle ID and find latest version
+            var latestStoreVersions: [String: String] = [:] // BundleID : Version
+            
+            for app in allStoreApps {
+                let bid = app.bundleIdentifier
+                if bid.isEmpty || bid == "unknown" { continue }
+                
+                if let currentBest = latestStoreVersions[bid] {
+                    if compareVersions(app.version, currentBest) == .orderedDescending {
+                        latestStoreVersions[bid] = app.version
+                    }
+                } else {
+                    latestStoreVersions[bid] = app.version
+                }
+            }
+            
+            // Compare with installed apps
+            var newUpdates: [String: String] = [:]
+            for installed in installedApps {
+                guard let currentVer = installed.version else { continue }
+                if let latestVer = latestStoreVersions[installed.bundleID] {
+                    if compareVersions(latestVer, currentVer) == .orderedDescending {
+                        newUpdates[installed.bundleID] = latestVer
+                    }
+                }
+            }
+            
+            let finalUpdates = newUpdates
+            await MainActor.run {
+                self.availableUpdates = finalUpdates
+            }
+        }
+    }
+    
+    func compareVersions(_ v1: String, _ v2: String) -> ComparisonResult {
+        return v1.compare(v2, options: .numeric)
+    }
+    
+    // MARK: - Repo Management
+    
     func loadRepos() {
-        if let data = UserDefaults.standard.data(forKey: kSavedReposKey),
+        let fileManager = FileManager.default
+        
+        // 0. Migration from Documents (Visible to User) -> Application Support (Hidden)
+        let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("repos.json")
+            
+        if fileManager.fileExists(atPath: documentsURL.path) {
+            do {
+                print("Migrating repos.json to Application Support...")
+                let destFolder = reposFileURL.deletingLastPathComponent()
+                try fileManager.createDirectory(at: destFolder, withIntermediateDirectories: true)
+                
+                // If destination exists for some reason, remove it
+                if fileManager.fileExists(atPath: reposFileURL.path) {
+                    try fileManager.removeItem(at: reposFileURL)
+                }
+                
+                try fileManager.moveItem(at: documentsURL, to: reposFileURL)
+            } catch {
+                print("Migration failed: \(error)")
+            }
+        }
+        
+        // 1. Try loading from File (Application Support)
+        if let data = try? Data(contentsOf: reposFileURL),
            let decoded = try? JSONDecoder().decode([SavedRepo].self, from: data) {
             savedRepos = decoded
             sortRepos()
-        } else { resetReposToDefault() }
+            return
+        }
+        
+        // 2. Migration: Try loading from UserDefaults (Legacy)
+        if let data = UserDefaults.standard.data(forKey: kSavedReposKey),
+           let decoded = try? JSONDecoder().decode([SavedRepo].self, from: data) {
+            print("Migrating repos from UserDefaults to File...")
+            savedRepos = decoded
+            sortRepos()
+            // Save to new file location
+            saveRepos()
+            // Clean up old storage
+            UserDefaults.standard.removeObject(forKey: kSavedReposKey)
+            return
+        }
+        
+        // 3. Fallback
+        resetReposToDefault()
     }
     
+    // ... [Rest of Repo Management functions: getEnabledLeafRepos, repoExists, getRepo, etc. kept same] ...
     func getEnabledLeafRepos() -> [SavedRepo] {
         func flatten(_ nodes: [SavedRepo]) -> [SavedRepo] {
             var result: [SavedRepo] = []
@@ -449,6 +590,7 @@ class AppStoreViewModel: ObservableObject {
             func insert(_ nodes: inout [SavedRepo]) -> Bool {
                 for i in 0..<nodes.count {
                     if nodes[i].id == pid {
+                       if nodes[i].repoListURL != nil { return false } // Cannot add repo manually to remote folder
                        if nodes[i].children == nil { nodes[i].children = [] }
                        nodes[i].children?.append(newRepo)
                        return true
@@ -463,12 +605,15 @@ class AppStoreViewModel: ObservableObject {
         Task { await fetchRepo(id: id); await refreshDisplayApps() }
     }
     
-    func addFolder(name: String, parentID: String?) {
-        let folder = SavedRepo(folderName: name)
+    func addFolder(name: String, parentID: String?, repoListURL: URL? = nil) {
+        let folder = SavedRepo(folderName: name, repoListURL: repoListURL)
         if let pid = parentID {
             func insert(_ nodes: inout [SavedRepo]) -> Bool {
                 for i in 0..<nodes.count {
                     if nodes[i].id == pid {
+                        // Cannot add folder manually to a remote folder
+                       if nodes[i].repoListURL != nil { return false }
+                       
                        if nodes[i].children == nil { nodes[i].children = [] }
                        nodes[i].children?.append(folder)
                        return true
@@ -480,6 +625,11 @@ class AppStoreViewModel: ObservableObject {
             _ = insert(&savedRepos)
         } else { savedRepos.append(folder) }
         saveRepos()
+        
+        // If it's a remote folder, fetch immediately AND fetch its apps
+        if let _ = repoListURL {
+            Task { await fetchRemoteFolderList(folderID: folder.id, fetchApps: true) }
+        }
     }
     
     func renameRepo(id: String, newName: String) {
@@ -518,6 +668,7 @@ class AppStoreViewModel: ObservableObject {
             func insert(_ nodes: inout [SavedRepo]) -> Bool {
                 for i in 0..<nodes.count {
                     if nodes[i].id == targetId {
+                        if nodes[i].repoListURL != nil { return false } // Block move to remote folder
                         if nodes[i].children == nil { nodes[i].children = [] }
                         nodes[i].children?.append(item)
                         return true
@@ -560,8 +711,11 @@ class AppStoreViewModel: ObservableObject {
             for node in nodes {
                 if node.id == excludingId { continue } // Can't move into itself
                 if node.isFolder {
-                    res.append(node)
-                    if let children = node.children { res.append(contentsOf: collect(children)) }
+                    // Can't move into remote folder
+                    if node.repoListURL == nil {
+                        res.append(node)
+                        if let children = node.children { res.append(contentsOf: collect(children)) }
+                    }
                 }
             }
             return res
@@ -581,7 +735,7 @@ class AppStoreViewModel: ObservableObject {
                 }
                 
                 // Default: allow manual ordering / insertion order (stable)
-                return false 
+                return false
             }
             for i in 0..<nodes.count { if nodes[i].isFolder { sort(&nodes[i].children!) } }
         }
@@ -591,11 +745,18 @@ class AppStoreViewModel: ObservableObject {
     func saveRepos() {
         sortRepos()
         let snapshot = savedRepos
-        // Use a detached task for encoding to avoid blocking main thread
-        Task.detached(priority: .background) {
-            if let encoded = try? JSONEncoder().encode(snapshot) {
-                 UserDefaults.standard.set(encoded, forKey: "kSavedReposKey")
-            }
+        
+        // Use synchronous file write to ensure data persistence immediately.
+        // UserDefaults had size limits and async issues causing data loss.
+        do {
+            let data = try JSONEncoder().encode(snapshot)
+            // Ensure directory exists
+            let folder = reposFileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            
+            try data.write(to: reposFileURL, options: .atomic)
+        } catch {
+            print("Failed to save repos to file: \(error)")
         }
     }
     
@@ -630,12 +791,84 @@ class AppStoreViewModel: ObservableObject {
     }
     
     func resetReposToDefault() {
-        // Updated default repo to a known consistent source for testing or example
-        if let url = URL(string: "https://repository.apptesters.org/") {
-            let def = SavedRepo(url: url, name: "AppTesters", iconURL: "https://apptesters.org/wp-content/uploads/2024/04/AppTesters-Logo-Site-Icon.webp", isEnabled: true)
-            savedRepos = [def]
+        // Set default repos to a remote folder list
+        if let url = URL(string: "https://lolendor.github.io/LBox/default_repos.csv") {
+            let folder = SavedRepo(folderName: "Recommended", repoListURL: url)
+            savedRepos = [folder]
             saveRepos()
             Task { await fetchAllRepos() }
+        }
+    }
+    
+    func fetchRemoteFolderList(folderID: String, fetchApps: Bool = false) async {
+        guard let folder = getRepo(folderID), let listURL = folder.repoListURL else { return }
+        updateRepoStatus(id: folderID, status: .loading)
+        
+        do {
+            let (data, _) = try await URLSession.shared.data(from: listURL)
+            guard let string = String(data: data, encoding: .utf8) else { throw URLError(.cannotDecodeContentData) }
+            let lines = string.components(separatedBy: .newlines)
+            
+            var newChildren: [SavedRepo] = []
+            let existingKids = folder.children ?? []
+            
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                     let fixed = (!trimmed.lowercased().hasPrefix("http") ? "https://" + trimmed : trimmed)
+                     if let u = URL(string: fixed) {
+                        // Attempt to preserve state (cache, names, enabled) if it existed before
+                        if let existing = existingKids.first(where: { $0.url?.absoluteString == u.absoluteString }) {
+                             newChildren.append(existing)
+                        } else {
+                            newChildren.append(SavedRepo(url: u))
+                        }
+                     }
+                }
+            }
+            
+            // Inline update
+            func updateChildren(id: String, children: [SavedRepo]) {
+                func scan(_ nodes: inout [SavedRepo]) {
+                    for i in 0..<nodes.count {
+                        if nodes[i].id == id {
+                            nodes[i].children = children
+                            nodes[i].fetchStatus = .success
+                            return
+                        }
+                        if nodes[i].isFolder { scan(&nodes[i].children!) }
+                    }
+                }
+                scan(&savedRepos)
+            }
+            
+            // Update the structure only
+            if !newChildren.isEmpty {
+                 await MainActor.run {
+                     updateChildren(id: folderID, children: newChildren)
+                 }
+            }
+            
+            // If explicitly asked (e.g. addFolder), fetch the apps for these children now.
+            // fetchAllRepos passes false to avoid double-fetching.
+            if fetchApps {
+                let childrenToFetch = newChildren.filter { $0.url != nil && $0.isEnabled }
+                await withTaskGroup(of: Void.self) { group in
+                    for child in childrenToFetch {
+                        group.addTask {
+                            await self.fetchRepo(id: child.id, saveAfter: false)
+                        }
+                    }
+                }
+                saveRepos()
+                await refreshDisplayApps()
+            }
+            
+        } catch {
+            print("Remote folder fetch error: \(error)")
+            await MainActor.run {
+                updateRepoStatus(id: folderID, status: .error(error.localizedDescription))
+            }
         }
     }
     
@@ -674,6 +907,26 @@ class AppStoreViewModel: ObservableObject {
     
     func fetchAllRepos() async {
         isLoading = true
+        
+        // 1. Update Remote Folders first
+        func findRemoteFolders(_ nodes: [SavedRepo]) -> [SavedRepo] {
+            var res: [SavedRepo] = []
+            for node in nodes {
+                if node.repoListURL != nil { res.append(node) }
+                if let children = node.children { res.append(contentsOf: findRemoteFolders(children)) }
+            }
+            return res
+        }
+        let remoteFolders = findRemoteFolders(savedRepos)
+        if !remoteFolders.isEmpty {
+            await withTaskGroup(of: Void.self) { group in
+                for folder in remoteFolders {
+                    group.addTask { await self.fetchRemoteFolderList(folderID: folder.id, fetchApps: false) }
+                }
+            }
+        }
+        
+        // 2. Update Leaf Repos
         let leafRepos = getEnabledLeafRepos()
         
         fetchTotal = leafRepos.count
@@ -711,11 +964,27 @@ class AppStoreViewModel: ObservableObject {
         
         // Offload heavy sorting/filtering to background
         let (grouped, displayList) = await Task.detached(priority: .userInitiated) {
-            let grouped = Dictionary(grouping: apps) { "\($0.bundleIdentifier)|\($0.name)|\($0.sourceRepoName ?? "")" }
+            // Group by Bundle Identifier if valid, otherwise fallback
+            let grouped = Dictionary(grouping: apps) { app -> String in
+                if app.bundleIdentifier != "unknown" && !app.bundleIdentifier.isEmpty {
+                    return app.bundleIdentifier
+                }
+                return app.downloadURL // fallback to distinct URL if no bundle ID
+            }
             
             var representatives: [AppItem] = []
             for (_, versions) in grouped {
-                if let latest = versions.sorted(by: { ($0.versionDate ?? "") > ($1.versionDate ?? "") }).first {
+                // Latest version based on version string comparison (or date)
+                // Using version comparison logic similar to updates for accuracy
+                if let latest = versions.sorted(by: {
+                    // Try numeric comparison first, fallback to date
+                    let v1 = $0.version
+                    let v2 = $1.version
+                    if v1 != v2 {
+                        return v1.compare(v2, options: .numeric) == .orderedDescending
+                    }
+                    return ($0.versionDate ?? "") > ($1.versionDate ?? "")
+                }).first {
                     representatives.append(latest)
                 }
             }
@@ -741,9 +1010,20 @@ class AppStoreViewModel: ObservableObject {
         self.displayApps = displayList
     }
     
-    // **Renamed method to avoid keyword conflict**
+    // Updated to use the correct key logic
     func getVersions(for app: AppItem) -> [AppItem] {
-        let key = "\(app.bundleIdentifier)|\(app.name)|\(app.sourceRepoName ?? "")"
-        return allAppsByVariant[key]?.sorted(by: { ($0.versionDate ?? "") > ($1.versionDate ?? "") }) ?? []
+        let key: String
+        if app.bundleIdentifier != "unknown" && !app.bundleIdentifier.isEmpty {
+            key = app.bundleIdentifier
+        } else {
+            key = app.downloadURL
+        }
+        
+        guard let list = allAppsByVariant[key] else { return [] }
+        
+        return list.sorted {
+            $0.version.compare($1.version, options: .numeric) == .orderedDescending
+        }
     }
 }
+

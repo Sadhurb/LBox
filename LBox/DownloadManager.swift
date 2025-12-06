@@ -8,11 +8,37 @@ import ZIPFoundation
 
 // Make Equatable for UI comparisons
 enum DownloadStatus: Equatable {
-    // Changed to include byte counts
     case downloading(progress: Double, written: Int64, total: Int64)
     case paused
     case waitingForConnection
     case none
+}
+
+enum InstallAction {
+    case installSeparate
+    case updateExisting
+    case cancel
+}
+
+struct PendingInstallation: Identifiable {
+    let id = UUID()
+    let appName: String
+    let bundleID: String
+    let tempPayloadURL: URL 
+    let extractedAppURL: URL 
+    let sourceArchiveURL: URL 
+    let existingApp: LocalApp? 
+}
+
+struct AppBackup: Codable, Identifiable, Sendable {
+    var id: String { bundleID }
+    let bundleID: String
+    let appName: String
+    let version: String?
+    let backupPath: String 
+    let originalInstallPath: String 
+    let date: Date
+    let hadLCAppInfo: Bool 
 }
 
 @MainActor
@@ -32,8 +58,17 @@ class DownloadManager: NSObject, ObservableObject {
     @Published var customDownloadFolder: URL? = nil
     @Published var customLiveContainerFolder: URL? = nil 
     
-    var isAutoUnzipEnabled: Bool {
-        return UserDefaults.standard.bool(forKey: "kAutoUnzipEnabled")
+    // Pending Installation (Collision)
+    @Published var pendingInstallation: PendingInstallation? = nil
+    
+    // Backups for Updates
+    @Published var pendingBackups: [AppBackup] = []
+    
+    // Changed to Published for reactive UI updates
+    @Published var isAutoUnzipEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isAutoUnzipEnabled, forKey: "kAutoUnzipEnabled")
+        }
     }
     
     @Published var downloadStates: [URL: DownloadStatus] = [:]
@@ -48,10 +83,13 @@ class DownloadManager: NSObject, ObservableObject {
     private let kBackgroundSessionID = "com.lbox.downloadSession"
     private let kResumeDataMapKey = "kResumeDataMapKey"
     
+    private let kPendingBackupsKey = "kPendingBackupsKey"
+    
     // URL String -> Filename in Caches
     private var diskResumeDataPaths: [String: String] = [:]
     
     override init() {
+        self.isAutoUnzipEnabled = UserDefaults.standard.bool(forKey: "kAutoUnzipEnabled")
         super.init()
         let config = URLSessionConfiguration.background(withIdentifier: kBackgroundSessionID)
         config.isDiscretionary = false
@@ -64,6 +102,7 @@ class DownloadManager: NSObject, ObservableObject {
         
         restoreFolders()
         restoreResumeDataMapping()
+        loadPendingBackups()
         reconnectExistingTasks()
         refreshFileList()
         refreshInstalledApps()
@@ -71,6 +110,14 @@ class DownloadManager: NSObject, ObservableObject {
     
     func getStatus(for url: URL) -> DownloadStatus {
         return downloadStates[url] ?? .none
+    }
+    
+    func getInstalledVersion(bundleID: String) -> String? {
+        return installedApps.first(where: { $0.bundleID == bundleID })?.version
+    }
+    
+    func getInstalledAppName(bundleID: String) -> String? {
+        return installedApps.first(where: { $0.bundleID == bundleID })?.url.lastPathComponent
     }
     
     // MARK: - Notifications
@@ -107,15 +154,19 @@ class DownloadManager: NSObject, ObservableObject {
         return nil
     }
     
+    var backupDirectory: URL {
+        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Backups")
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+    
     func getLocalFile(for url: URL) -> URL? {
-        // Enforce .ipa check logic alignment with download naming
         var name = url.lastPathComponent
         if url.pathExtension.isEmpty { name += ".ipa" }
         
         let dest = currentDownloadFolder.appendingPathComponent(name)
         if FileManager.default.fileExists(atPath: dest.path) { return dest }
         
-        // Also check if original name was used
         let destOriginal = currentDownloadFolder.appendingPathComponent(url.lastPathComponent)
         if FileManager.default.fileExists(atPath: destOriginal.path) { return destOriginal }
         
@@ -130,7 +181,134 @@ class DownloadManager: NSObject, ObservableObject {
         return installedApps.contains { $0.bundleID == bundleID }
     }
     
-    // MARK: - Restoration
+    // MARK: - Backup Logic
+    
+    func loadPendingBackups() {
+        if let data = UserDefaults.standard.data(forKey: kPendingBackupsKey),
+           let list = try? JSONDecoder().decode([AppBackup].self, from: data) {
+            self.pendingBackups = list
+        }
+    }
+    
+    func savePendingBackups() {
+        if let data = try? JSONEncoder().encode(pendingBackups) {
+            UserDefaults.standard.set(data, forKey: kPendingBackupsKey)
+        }
+    }
+    
+    func hasLCAppInfo(bundleID: String) -> Bool {
+        guard let app = installedApps.first(where: { $0.bundleID == bundleID }) else { return false }
+        let url = app.url.appendingPathComponent("LCAppInfo.plist")
+        return FileManager.default.fileExists(atPath: url.path)
+    }
+    
+    func checkUpdateStatus(for backup: AppBackup) -> Bool {
+        refreshInstalledApps()
+        
+        let bundleID = backup.bundleID
+        guard isAppInstalled(bundleID: bundleID) else { return false }
+        
+        if hasLCAppInfo(bundleID: bundleID) {
+            if backup.hadLCAppInfo {
+                finalizeUpdate(backup)
+            } else {
+                discardBackup(backup)
+            }
+            return true
+        }
+        return false
+    }
+    
+    func finalizeUpdate(_ backup: AppBackup) {
+        guard let app = installedApps.first(where: { $0.bundleID == backup.bundleID }) else {
+            discardBackup(backup)
+            return
+        }
+        
+        let fileManager = FileManager.default
+        let newInfoURL = app.url.appendingPathComponent("LCAppInfo.plist")
+        let backupAppURL = backupDirectory.appendingPathComponent(backup.backupPath).appendingPathComponent(backup.originalInstallPath)
+        let oldInfoURL = backupAppURL.appendingPathComponent("LCAppInfo.plist")
+        
+        if fileManager.fileExists(atPath: newInfoURL.path) && fileManager.fileExists(atPath: oldInfoURL.path) {
+            do {
+                let oldData = try Data(contentsOf: oldInfoURL)
+                guard let oldPlist = try PropertyListSerialization.propertyList(from: oldData, format: nil) as? [String: Any] else {
+                    discardBackup(backup)
+                    return
+                }
+                
+                let newData = try Data(contentsOf: newInfoURL)
+                var newPlist = try PropertyListSerialization.propertyList(from: newData, format: nil) as? [String: Any] ?? [:]
+                
+                // NEW: Clean up newly created empty containers before restoring old ones
+                if let newContainers = newPlist["LCContainers"] as? [[String: Any]],
+                   let dataAppFolder = currentDataApplicationFolder {
+                    for container in newContainers {
+                        if let folderName = container["folderName"] as? String {
+                            let folderURL = dataAppFolder.appendingPathComponent(folderName)
+                            if fileManager.fileExists(atPath: folderURL.path) {
+                                try? fileManager.removeItem(at: folderURL)
+                                print("Deleted temporary container: \(folderName)")
+                            }
+                        }
+                    }
+                }
+                
+                // Patch new plist with old container/uuid data to preserve UserData
+                if let oldContainers = oldPlist["LCContainers"] {
+                    newPlist["LCContainers"] = oldContainers
+                }
+                if let oldUUID = oldPlist["LCDataUUID"] {
+                    newPlist["LCDataUUID"] = oldUUID
+                }
+                
+                let patchedData = try PropertyListSerialization.data(fromPropertyList: newPlist, format: .xml, options: 0)
+                try patchedData.write(to: newInfoURL)
+                print("Patched LCAppInfo for \(backup.bundleID) with old data.")
+                
+            } catch {
+                print("Failed to patch LCAppInfo: \(error)")
+            }
+        }
+        
+        discardBackup(backup)
+    }
+    
+    // ... [Remaining Backup, Restore, Task methods unchanged]
+    func restoreBackup(_ backup: AppBackup) {
+        let fileManager = FileManager.default
+        let backupFolder = backupDirectory.appendingPathComponent(backup.backupPath)
+        
+        do {
+            let contents = try fileManager.contentsOfDirectory(at: backupFolder, includingPropertiesForKeys: nil)
+            guard let backedUpApp = contents.first(where: { $0.pathExtension == "app" }) else { return }
+            
+            let dest = currentAppsFolder.appendingPathComponent(backup.originalInstallPath)
+            
+            if fileManager.fileExists(atPath: dest.path) {
+                try fileManager.removeItem(at: dest)
+            }
+            
+            try fileManager.moveItem(at: backedUpApp, to: dest)
+            
+            discardBackup(backup)
+            refreshInstalledApps()
+        } catch {
+            print("Restore failed: \(error)")
+        }
+    }
+    
+    func discardBackup(_ backup: AppBackup) {
+        let fileManager = FileManager.default
+        let backupFolder = backupDirectory.appendingPathComponent(backup.backupPath)
+        try? fileManager.removeItem(at: backupFolder)
+        
+        if let index = pendingBackups.firstIndex(where: { $0.id == backup.id }) {
+            pendingBackups.remove(at: index)
+            savePendingBackups()
+        }
+    }
     
     private func restoreFolders() {
         restoreFolder(key: kCustomDownloadFolderKey) { self.customDownloadFolder = $0 }
@@ -182,8 +360,6 @@ class DownloadManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Resume Data
-    
     private func restoreResumeDataMapping() {
         if let map = UserDefaults.standard.dictionary(forKey: kResumeDataMapKey) as? [String: String] {
             self.diskResumeDataPaths = map
@@ -225,8 +401,6 @@ class DownloadManager: NSObject, ObservableObject {
         }
     }
     
-    // MARK: - Folder Setters
-    
     func setCustomFolder(_ url: URL, forApps: Bool) {
         do {
             guard url.startAccessingSecurityScopedResource() else { return }
@@ -237,6 +411,7 @@ class DownloadManager: NSObject, ObservableObject {
             
             if forApps {
                 self.customLiveContainerFolder = url
+                self.isAutoUnzipEnabled = true // Auto-enable as requested
                 refreshInstalledApps()
             } else {
                 self.customDownloadFolder = url
@@ -258,8 +433,6 @@ class DownloadManager: NSObject, ObservableObject {
             refreshFileList()
         }
     }
-    
-    // MARK: - Actions
     
     func startDownload(url: URL) {
         if getLocalFile(for: url) != nil { return }
@@ -326,8 +499,6 @@ class DownloadManager: NSObject, ObservableObject {
         return false
     }
     
-    // MARK: - File Operations
-    
     func refreshFileList() {
         do {
             let files = try FileManager.default.contentsOfDirectory(at: currentDownloadFolder, includingPropertiesForKeys: nil)
@@ -344,15 +515,26 @@ class DownloadManager: NSObject, ObservableObject {
                 let plistURL = file.appendingPathComponent("Info.plist")
                 var name = file.deletingPathExtension().lastPathComponent
                 var bundleID = "unknown"
+                var version: String? = nil
                 var iconURL: URL? = nil
                 
                 if let plistData = try? Data(contentsOf: plistURL),
                    let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] {
-                    if let bid = plist["CFBundleIdentifier"] as? String { bundleID = bid }
-                    if let displayName = plist["CFBundleDisplayName"] as? String { name = displayName }
-                    else if let bundleName = plist["CFBundleName"] as? String { name = bundleName }
+                    if let bid = plist["CFBundleIdentifier"] as? String {
+                        bundleID = bid.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
+                    if let displayName = plist["CFBundleDisplayName"] as? String {
+                        name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    } else if let bundleName = plist["CFBundleName"] as? String {
+                        name = bundleName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
                     
-                    // Icon logic
+                    if let ver = plist["CFBundleShortVersionString"] as? String {
+                        version = ver
+                    } else if let ver = plist["CFBundleVersion"] as? String {
+                        version = ver
+                    }
+                    
                     var iconFiles: [String] = []
                     if let iconsDict = plist["CFBundleIcons"] as? [String: Any],
                        let primaryIcon = iconsDict["CFBundlePrimaryIcon"] as? [String: Any],
@@ -376,7 +558,7 @@ class DownloadManager: NSObject, ObservableObject {
                         iconURL = findIconFile(in: file, name: "AppIcon60x60") ?? findIconFile(in: file, name: "AppIcon")
                     }
                 }
-                newApps.append(LocalApp(name: name, bundleID: bundleID, url: file, iconURL: iconURL))
+                newApps.append(LocalApp(name: name, bundleID: bundleID, version: version, url: file, iconURL: iconURL))
             }
             self.installedApps = newApps
         } catch { self.installedApps = [] }
@@ -399,7 +581,6 @@ class DownloadManager: NSObject, ObservableObject {
         let newURL = folder.appendingPathComponent(newName)
         do {
             if startAccessing(fileURL) { defer { fileURL.stopAccessingSecurityScopedResource() } }
-            // If target exists, fail or overwrite (logic here fails)
             if FileManager.default.fileExists(atPath: newURL.path) {
                 print("Error: File already exists")
                 return
@@ -443,43 +624,55 @@ class DownloadManager: NSObject, ObservableObject {
     
     func convertToApp(file: URL) {
         Task {
-            // Track extraction state
-            await MainActor.run { self.extractingFiles.insert(file) }
-            defer { Task { @MainActor in self.extractingFiles.remove(file) } }
+            _ = await MainActor.run { self.extractingFiles.insert(file) }
             
             do {
+                var accessActive = false
                 if file.startAccessingSecurityScopedResource() {
-                    defer { file.stopAccessingSecurityScopedResource() }
-                    try extractApp(from: file)
-                } else {
-                    try extractApp(from: file)
+                    accessActive = true
                 }
-                await MainActor.run {
-                    self.refreshFileList()
-                    self.refreshInstalledApps()
+                
+                try await extractApp(from: file)
+                
+                if accessActive {
+                    file.stopAccessingSecurityScopedResource()
+                    accessActive = false
+                }
+                
+                if self.pendingInstallation == nil {
+                    _ = await MainActor.run {
+                        self.extractingFiles.remove(file)
+                        self.refreshFileList()
+                        self.refreshInstalledApps()
+                    }
+                } else {
+                     _ = await MainActor.run { self.extractingFiles.remove(file) }
                 }
             } catch {
                 print("Convert error: \(error)")
+                _ = await MainActor.run { self.extractingFiles.remove(file) }
             }
         }
     }
     
-    // Explicitly import a file from file picker
     func importFile(at source: URL) {
         let dest = currentDownloadFolder.appendingPathComponent(source.lastPathComponent)
         do {
             if source.startAccessingSecurityScopedResource() {
-                defer { source.stopAccessingSecurityScopedResource() }
+                let access = true
+                
                 if FileManager.default.fileExists(atPath: dest.path) { try FileManager.default.removeItem(at: dest) }
                 try FileManager.default.copyItem(at: source, to: dest)
                 refreshFileList()
+                
+                if access { source.stopAccessingSecurityScopedResource() }
             }
         } catch {
             print("Import failed: \(error)")
         }
     }
     
-    private func extractApp(from sourceURL: URL) throws {
+    private func extractApp(from sourceURL: URL) async throws {
         let fileManager = FileManager.default
         let folder = self.currentAppsFolder
         if !fileManager.fileExists(atPath: folder.path) {
@@ -495,19 +688,48 @@ class DownloadManager: NSObject, ObservableObject {
         if fileManager.fileExists(atPath: payloadDir.path) {
             let contents = try fileManager.contentsOfDirectory(at: payloadDir, includingPropertiesForKeys: nil)
             if let appBundle = contents.first(where: { $0.pathExtension == "app" }) {
+                
                 var targetName = appBundle.lastPathComponent
+                var bundleID = "unknown"
+                
                 let plistURL = appBundle.appendingPathComponent("Info.plist")
                 if let plistData = try? Data(contentsOf: plistURL),
-                   let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any],
-                   let bundleID = plist["CFBundleIdentifier"] as? String {
-                    targetName = bundleID + ".app"
+                   let plist = try? PropertyListSerialization.propertyList(from: plistData, format: nil) as? [String: Any] {
+                    if let bid = plist["CFBundleIdentifier"] as? String {
+                        bundleID = bid.trimmingCharacters(in: .whitespacesAndNewlines)
+                        targetName = bundleID + ".app"
+                    }
                 }
-                let targetAppURL = folder.appendingPathComponent(targetName)
-                if fileManager.fileExists(atPath: targetAppURL.path) { try fileManager.removeItem(at: targetAppURL) }
-                try fileManager.moveItem(at: appBundle, to: targetAppURL)
+                
+                if let existingApp = self.installedApps.first(where: { $0.bundleID == bundleID && bundleID != "unknown" }) {
+                    _ = await MainActor.run {
+                        self.pendingInstallation = PendingInstallation(
+                            appName: existingApp.name, 
+                            bundleID: bundleID,
+                            tempPayloadURL: payloadDir, 
+                            extractedAppURL: appBundle,
+                            sourceArchiveURL: sourceURL,
+                            existingApp: existingApp
+                        )
+                    }
+                    return
+                }
+                
+                var finalURL = folder.appendingPathComponent(targetName)
+                if fileManager.fileExists(atPath: finalURL.path) {
+                    let nameWithoutExt = finalURL.deletingPathExtension().lastPathComponent
+                    var counter = 1
+                    while fileManager.fileExists(atPath: finalURL.path) {
+                        finalURL = folder.appendingPathComponent("\(nameWithoutExt)_\(counter).app")
+                        counter += 1
+                    }
+                }
+                
+                try fileManager.moveItem(at: appBundle, to: finalURL)
                 
                 if sourceURL.path.contains(currentDownloadFolder.path) { try? fileManager.removeItem(at: sourceURL) }
                 try? fileManager.removeItem(at: tempUnzipDir)
+                
             } else { try? fileManager.removeItem(at: tempUnzipDir) }
         } else { try? fileManager.removeItem(at: tempUnzipDir) }
         #else
@@ -517,6 +739,96 @@ class DownloadManager: NSObject, ObservableObject {
             try fileManager.moveItem(at: sourceURL, to: zipURL)
         }
         #endif
+    }
+    
+    func finalizeInstallation(action: InstallAction) {
+        guard let pending = pendingInstallation else { return }
+        
+        let fileManager = FileManager.default
+        let folder = self.currentAppsFolder
+        let downloadDir = self.currentDownloadFolder
+        let backupDir = self.backupDirectory
+        
+        Task.detached(priority: .userInitiated) {
+            do {
+                switch action {
+                case .installSeparate:
+                    var targetName = pending.extractedAppURL.lastPathComponent
+                    if !pending.bundleID.isEmpty && pending.bundleID != "unknown" {
+                        targetName = pending.bundleID + ".app"
+                    }
+                    
+                    var finalURL = folder.appendingPathComponent(targetName)
+                    let nameWithoutExt = finalURL.deletingPathExtension().lastPathComponent
+                    var counter = 1
+                    while fileManager.fileExists(atPath: finalURL.path) {
+                        finalURL = folder.appendingPathComponent("\(nameWithoutExt)_\(counter).app")
+                        counter += 1
+                    }
+                    
+                    try fileManager.moveItem(at: pending.extractedAppURL, to: finalURL)
+                    
+                case .updateExisting:
+                    guard let existing = pending.existingApp else { break }
+                    
+                    let existingPath = existing.url
+                    let lcInfoURL = existingPath.appendingPathComponent("LCAppInfo.plist")
+                    let hadInfo = fileManager.fileExists(atPath: lcInfoURL.path)
+                    
+                    if !hadInfo {
+                        if fileManager.fileExists(atPath: existingPath.path) {
+                            try fileManager.removeItem(at: existingPath)
+                        }
+                        try fileManager.moveItem(at: pending.extractedAppURL, to: existingPath)
+                    } else {
+                        let backupUUID = UUID().uuidString
+                        let destFolder = backupDir.appendingPathComponent(backupUUID)
+                        try fileManager.createDirectory(at: destFolder, withIntermediateDirectories: true)
+                        
+                        let backupDest = destFolder.appendingPathComponent(existingPath.lastPathComponent)
+                        
+                        try fileManager.moveItem(at: existingPath, to: backupDest)
+                        
+                        let backupRecord = AppBackup(
+                            bundleID: existing.bundleID,
+                            appName: existing.name,
+                            version: existing.version,
+                            backupPath: backupUUID,
+                            originalInstallPath: existingPath.lastPathComponent,
+                            date: Date(),
+                            hadLCAppInfo: hadInfo
+                        )
+                        
+                        await MainActor.run {
+                            self.pendingBackups.append(backupRecord)
+                            self.savePendingBackups()
+                        }
+                        
+                        try fileManager.moveItem(at: pending.extractedAppURL, to: existingPath)
+                    }
+                    
+                case .cancel:
+                    break
+                }
+            } catch {
+                print("Finalize install error: \(error)")
+            }
+            
+            let tempRoot = pending.tempPayloadURL.deletingLastPathComponent()
+            try? fileManager.removeItem(at: tempRoot)
+            
+            if action != .cancel, pending.sourceArchiveURL.path.contains(downloadDir.path) {
+                try? fileManager.removeItem(at: pending.sourceArchiveURL)
+            }
+            
+            try? await Task.sleep(nanoseconds: 200_000_000)
+
+            await MainActor.run {
+                self.pendingInstallation = nil
+                self.refreshFileList()
+                self.refreshInstalledApps()
+            }
+        }
     }
     
     private func startAccessing(_ url: URL) -> Bool {
@@ -546,10 +858,9 @@ extension DownloadManager: URLSessionDownloadDelegate {
                     try manager.createDirectory(at: folder, withIntermediateDirectories: true)
                 }
                 
-                // Determine Final Filename
                 var finalName = sourceURL.lastPathComponent
                 if sourceURL.pathExtension.isEmpty {
-                    finalName += ".ipa" // Added constraint: Ensure .ipa if extension missing
+                    finalName += ".ipa"
                 }
                 
                 let finalURL = folder.appendingPathComponent(finalName)
@@ -559,10 +870,11 @@ extension DownloadManager: URLSessionDownloadDelegate {
                 self.sendNotification(title: "Download Complete", body: "\(finalName) has been downloaded.")
                 
                 if self.isAutoUnzipEnabled && finalURL.pathExtension.lowercased() == "ipa" {
-                    // Extract with state tracking
                     self.extractingFiles.insert(finalURL)
-                    try self.extractApp(from: finalURL)
-                    self.extractingFiles.remove(finalURL)
+                    try await self.extractApp(from: finalURL)
+                    if self.pendingInstallation == nil {
+                        self.extractingFiles.remove(finalURL)
+                    }
                 }
                 
                 self.downloadStates[sourceURL] = nil
@@ -573,7 +885,6 @@ extension DownloadManager: URLSessionDownloadDelegate {
             } catch {
                 self.downloadStates[sourceURL] = nil
                 self.refreshFileList()
-                // Ensure state is cleared if error occurs
                 if let fname = sourceURL.lastPathComponent as String?, let furl = self.currentDownloadFolder.appendingPathComponent(fname) as URL? {
                     self.extractingFiles.remove(furl)
                 }
@@ -629,3 +940,4 @@ extension DownloadManager: URLSessionDownloadDelegate {
         }
     }
 }
+

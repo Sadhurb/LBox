@@ -4,6 +4,7 @@ struct AppDetailView: View {
     let app: AppItem
     @ObservedObject var viewModel: AppStoreViewModel
     @EnvironmentObject var downloadManager: DownloadManager
+    @State private var showSetupNeeded = false
     
     // Helper to extract versions cleanly and avoid compiler confusion in ViewBuilder
     private var versionHistory: [AppItem] {
@@ -13,29 +14,28 @@ struct AppDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // App Header
                 headerSection
-                
                 Divider().padding(.horizontal)
-                
-                // Screenshots
                 if !app.screenshotURLs.isEmpty {
                     screenshotsSection
                     Divider().padding(.horizontal)
                 }
-                
-                // Description
                 aboutSection
-                
                 Divider().padding(.horizontal)
-                
-                // Versions Section
                 versionsSection
                     .padding(.bottom, 40)
             }
             .padding(.top)
         }
         .navigationBarTitleDisplayMode(.inline)
+        .alert("Setup Required", isPresented: $showSetupNeeded) {
+            Button("Open LiveContainer") {
+                if let url = URL(string: "livecontainer://livecontainer-launch?bundle-name=\(downloadManager.getInstalledAppName(bundleID: app.bundleIdentifier) ?? "Unknown")") { UIApplication.shared.open(url) }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This app has not been configured yet. Please open LiveContainer, then find and run this app once to generate the configuration.")
+        }
     }
     
     var headerSection: some View {
@@ -63,7 +63,6 @@ struct AppDetailView: View {
                     .foregroundColor(.secondary)
                     .lineLimit(1)
                 
-                // New: Display App Size and Version
                 HStack(spacing: 4) {
                     Text("v\(app.version)")
                     if let size = app.size {
@@ -84,12 +83,9 @@ struct AppDetailView: View {
                         .cornerRadius(4)
                 }
                 
-                // Action Buttons Row
                 HStack(spacing: 12) {
-                    // 1. Download/Status Button
                     DownloadButton(app: app)
                     
-                    // 2. Open Button
                     if downloadManager.isAppInstalled(bundleID: app.bundleIdentifier) {
                         Button {
                             launchApp(bundleID: app.bundleIdentifier)
@@ -111,6 +107,7 @@ struct AppDetailView: View {
         .padding(.horizontal)
     }
     
+    // ... [screenshotsSection, aboutSection, versionsSection unchanged] ...
     var screenshotsSection: some View {
         VStack(alignment: .leading) {
             Text("Preview")
@@ -156,34 +153,63 @@ struct AppDetailView: View {
                 .font(.headline)
                 .padding(.horizontal)
             
-            // Use the computed property to fix compiler error
             ForEach(versionHistory) { versionApp in
                 VersionRow(app: versionApp)
             }
         }
     }
     
-    // Launch Logic matching InstalledAppItem
+    // Launch Logic
     func launchApp(bundleID: String) {
         if let installedApp = downloadManager.installedApps.first(where: { $0.bundleID == bundleID }) {
-            let folderName = installedApp.url.lastPathComponent
-            let urlString = "livecontainer://livecontainer-launch?bundle-name=\(folderName)"
-            if let url = URL(string: urlString) {
-                UIApplication.shared.open(url)
+            if downloadManager.hasLCAppInfo(bundleID: bundleID) {
+                let folderName = installedApp.url.lastPathComponent
+                let urlString = "livecontainer://livecontainer-launch?bundle-name=\(folderName)"
+                if let url = URL(string: urlString) {
+                    UIApplication.shared.open(url)
+                }
+            } else {
+                showSetupNeeded = true
             }
         }
     }
 }
 
-// Separate row for versions
+// Separate row for versions (Unchanged)
 struct VersionRow: View {
     let app: AppItem
+    @EnvironmentObject var downloadManager: DownloadManager
+    
+    var isInstalledVersion: Bool {
+        guard let current = downloadManager.getInstalledVersion(bundleID: app.bundleIdentifier) else { return false }
+        return current == app.version
+    }
     
     var body: some View {
         HStack(alignment: .center) {
             VStack(alignment: .leading) {
-                Text("Version \(app.version)")
-                    .fontWeight(.semibold)
+                HStack {
+                    Text("Version \(app.version)")
+                        .fontWeight(.semibold)
+                    
+                    if let repo = app.sourceRepoName {
+                        Text(repo)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .padding(.horizontal, 4)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                    
+                    if isInstalledVersion {
+                        Text("Current")
+                            .font(.caption2.bold())
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 4)
+                            .background(Color.green.opacity(0.1))
+                            .cornerRadius(4)
+                    }
+                }
                 
                 HStack(spacing: 4) {
                     Text(app.versionDate ?? "Unknown Date")
@@ -206,7 +232,7 @@ struct VersionRow: View {
     }
 }
 
-// Helper to provide a share sheet
+// ... [FileShareSheet, DownloadButton Unchanged] ...
 struct FileShareSheet: UIViewControllerRepresentable {
     let activityItems: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {
@@ -225,9 +251,7 @@ struct DownloadButton: View {
         let downloadURL = URL(string: app.downloadURL)
         
         Group {
-            // Check file existence
             if let url = downloadURL, let localURL = downloadManager.getLocalFile(for: url) {
-                // 1. File Downloaded -> Share/File
                 Button {
                     showShareSheet = true
                 } label: {
@@ -239,7 +263,6 @@ struct DownloadButton: View {
                             .background(Color.gray.opacity(0.15))
                             .clipShape(Circle())
                     } else {
-                        // Standard mode: "FILE" or Icon to differentiate from Run
                         Label("File", systemImage: "doc.fill")
                             .font(.headline)
                             .padding(.vertical, 8)
@@ -253,59 +276,39 @@ struct DownloadButton: View {
                     FileShareSheet(activityItems: [prepareFileForShare(localURL)])
                 }
             } else if let url = downloadURL, case .downloading(let progress, _, _) = downloadManager.getStatus(for: url) {
-                // 2. Active Download
                 Button {
                     downloadManager.pauseDownload(url: url)
                 } label: {
                     ZStack {
-                        Circle()
-                            .stroke(lineWidth: 3)
-                            .opacity(0.2)
-                            .foregroundColor(.blue)
-                        
-                        Circle()
-                            .trim(from: 0.0, to: CGFloat(max(0.01, progress)))
+                        Circle().stroke(lineWidth: 3).opacity(0.2).foregroundColor(.blue)
+                        Circle().trim(from: 0.0, to: CGFloat(max(0.01, progress)))
                             .stroke(style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
-                            .foregroundColor(.blue)
-                            .rotationEffect(Angle(degrees: 270.0))
-                            .animation(.linear, value: progress)
-                        
-                        Image(systemName: "pause.fill")
-                            .font(.system(size: compact ? 10 : 14))
-                            .foregroundColor(.blue)
+                            .foregroundColor(.blue).rotationEffect(Angle(degrees: 270.0)).animation(.linear, value: progress)
+                        Image(systemName: "pause.fill").font(.system(size: compact ? 10 : 14)).foregroundColor(.blue)
                     }
                     .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
                 }
             } else if let url = downloadURL, case .paused = downloadManager.getStatus(for: url) {
-                // 3. Paused
                 Button {
                     downloadManager.resumeDownload(url: url)
                 } label: {
                     ZStack {
-                        Circle()
-                            .stroke(lineWidth: 3)
-                            .opacity(0.2)
-                            .foregroundColor(.blue)
-                        Image(systemName: "play.fill")
-                            .font(.system(size: compact ? 10 : 14))
-                            .foregroundColor(.blue)
+                        Circle().stroke(lineWidth: 3).opacity(0.2).foregroundColor(.blue)
+                        Image(systemName: "play.fill").font(.system(size: compact ? 10 : 14)).foregroundColor(.blue)
                     }
                     .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
                 }
             } else if let url = downloadURL, case .waitingForConnection = downloadManager.getStatus(for: url) {
-                // 4. Waiting
                 Button {
                     downloadManager.pauseDownload(url: url)
                 } label: {
                     ZStack {
                         Circle().stroke(lineWidth: 3).opacity(0.2).foregroundColor(.orange)
-                        Image(systemName: "wifi.slash")
-                            .font(.system(size: compact ? 10 : 14)).foregroundColor(.orange)
+                        Image(systemName: "wifi.slash").font(.system(size: compact ? 10 : 14)).foregroundColor(.orange)
                     }
                     .frame(width: compact ? 28 : 32, height: compact ? 28 : 32)
                 }
             } else {
-                // 5. GET Button
                 Button(action: {
                     if let url = downloadURL {
                         downloadManager.startDownload(url: url)
