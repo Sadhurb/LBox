@@ -536,8 +536,9 @@ struct FileRow: View {
 struct SettingsView: View {
     @ObservedObject var viewModel: AppStoreViewModel
     @EnvironmentObject var dm: DownloadManager
-    @State private var pickDL = false
-    @State private var pickApps = false
+    @State private var showFolderImporter = false
+    @State private var isPickingLiveContainer = false
+    
     @State private var confirmReset = false
     @State private var showExporter = false
     @State private var showImporter = false
@@ -549,8 +550,28 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 Section("Directories") {
-                    HStack { Text("Downloads"); Spacer(); if dm.customDownloadFolder != nil { Button("Default") { dm.clearCustomFolder(forApps: false) }.buttonStyle(.bordered) }; Button("Select") { pickDL = true } }
-                    HStack { Text("LiveContainer"); Spacer(); if dm.customLiveContainerFolder != nil { Button("Default") { dm.clearCustomFolder(forApps: true) }.buttonStyle(.bordered) }; Button("Select") { pickApps = true } }
+                    HStack { 
+                        Text("Downloads")
+                        Spacer() 
+                        if dm.customDownloadFolder != nil { 
+                            Button("Default") { dm.clearCustomFolder(forApps: false) }.buttonStyle(.bordered) 
+                        }
+                        Button("Select") { 
+                            isPickingLiveContainer = false
+                            showFolderImporter = true 
+                        } 
+                    }
+                    HStack { 
+                        Text("LiveContainer")
+                        Spacer() 
+                        if dm.customLiveContainerFolder != nil { 
+                            Button("Default") { dm.clearCustomFolder(forApps: true) }.buttonStyle(.bordered) 
+                        }
+                        Button("Select") { 
+                            isPickingLiveContainer = true
+                            showFolderImporter = true 
+                        } 
+                    }
                     Toggle("Auto .ipa to .app", isOn: $dm.isAutoUnzipEnabled)
                 }
                 Section("Store") {
@@ -587,11 +608,41 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .fileImporter(isPresented: $pickDL, allowedContentTypes: [.folder]) { res in if case .success(let url) = res { dm.setCustomFolder(url, forApps: false) } }
-            .fileImporter(isPresented: $pickApps, allowedContentTypes: [.folder]) { res in if case .success(let url) = res { dm.setCustomFolder(url, forApps: true); didSelectLiveContainer = true } }
-            .onChange(of: pickApps) { isPresented in if !isPresented { DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { if !didSelectLiveContainer { showSettingsHelp = true } } } else { didSelectLiveContainer = false } }
+            .fileImporter(isPresented: $showFolderImporter, allowedContentTypes: [.folder]) { res in 
+                if case .success(let url) = res { 
+                    if isPickingLiveContainer {
+                        dm.setCustomFolder(url, forApps: true) 
+                        didSelectLiveContainer = true 
+                    } else {
+                        dm.setCustomFolder(url, forApps: false)
+                    }
+                } 
+            }
+            .onChange(of: showFolderImporter) { isPresented in 
+                // Only run Help logic if we were picking for LiveContainer
+                if isPickingLiveContainer {
+                    if !isPresented { 
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { 
+                            if !didSelectLiveContainer { showSettingsHelp = true } 
+                        } 
+                    } else { 
+                        didSelectLiveContainer = false 
+                    } 
+                }
+            }
             .alert("Reset?", isPresented: $confirmReset) { Button("Cancel", role: .cancel) {}; Button("Reset", role: .destructive) { viewModel.resetReposToDefault() } }
-            .confirmationDialog("Copy Options", isPresented: $showCopyAlert) { Button("Copy All") { if let s = viewModel.exportReposJSON(onlyEnabled: false) { UIPasteboard.general.string = s } }; Button("Only Enabled") { if let s = viewModel.exportReposJSON(onlyEnabled: true) { UIPasteboard.general.string = s } }; Button("Cancel", role: .cancel) {} } message: { Text("Some repositories are disabled. Which would you like to copy?") }
+            
+            // Corrected Confirmation Dialog for SettingsView
+            .confirmationDialog("Copy Options", isPresented: $showCopyAlert) { 
+                Button("Copy All") { 
+                    if let s = viewModel.exportReposJSON(onlyEnabled: false) { UIPasteboard.general.string = s } 
+                }
+                Button("Only Enabled") { 
+                    if let s = viewModel.exportReposJSON(onlyEnabled: true) { UIPasteboard.general.string = s } 
+                }
+                Button("Cancel", role: .cancel) { } 
+            } message: { Text("Some repositories are disabled. Which would you like to copy?") }
+            
             .sheet(isPresented: $showExporter) { ShareSheet(activityItems: [exportJSONString]) }
             .sheet(isPresented: $showImporter) { ImportJSONView(viewModel: viewModel) }
             .alert("Have trouble selecting?", isPresented: $showSettingsHelp) { Button("Open LiveContainer") { if let url = URL(string: "livecontainer://install") { UIApplication.shared.open(url) } }; Button("Cancel", role: .cancel) { } } message: { Text("Solution: Open LiveContainer, find LBox in the \"My Apps\" list, press and hold the icon, tap Settings, and enable Fix File Picker. Then try selecting the directory again.") }
