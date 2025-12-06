@@ -248,7 +248,8 @@ struct InstalledAppsView: View {
     @EnvironmentObject var downloadManager: DownloadManager
     @Binding var selectedTab: Int
     @ObservedObject var viewModel: AppStoreViewModel
-    let columns = [GridItem(.adaptive(minimum: 80, maximum: 100), spacing: 20)]
+    // Changed alignment to .top to prevent icons from shifting when "Update" button is present
+    let columns = [GridItem(.adaptive(minimum: 80, maximum: 100), spacing: 20, alignment: .top)]
     var body: some View {
         NavigationStack {
             ScrollView {
