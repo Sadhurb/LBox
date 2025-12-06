@@ -573,7 +573,7 @@ struct SettingsView: View {
                     Button("Import Repos (JSON)") { showImporter = true }
                 }
                 Section("About") {
-                    Text("LBox v1.0")
+                    Text("LBox v1.1")
                     Button("Reset to Defaults") { confirmReset = true }.foregroundColor(.red)
                 }
             }
