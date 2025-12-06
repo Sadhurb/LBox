@@ -552,6 +552,14 @@ struct SettingsView: View {
                     HStack { Text("LiveContainer"); Spacer(); if dm.customLiveContainerFolder != nil { Button("Default") { dm.clearCustomFolder(forApps: true) }.buttonStyle(.bordered) }; Button("Select") { pickApps = true } }
                     Toggle("Auto .ipa to .app", isOn: $dm.isAutoUnzipEnabled)
                 }
+                Section("Store") {
+                   Toggle("Strict Grouping", isOn: $viewModel.strictGrouping)
+                   if viewModel.strictGrouping {
+                       Text("Apps with different sources, names, or descriptions will be listed separately.").font(.caption).foregroundColor(.secondary)
+                   } else {
+                       Text("Apps with the same Bundle ID will be grouped together regardless of source.").font(.caption).foregroundColor(.secondary)
+                   }
+                }
                 Section("Repositories") {
                     NavigationLink("Manage Sources") { RepoManagementView(viewModel: viewModel, parentID: nil) }
                     Picker("Sort Repos By", selection: $viewModel.repoSortOrder) {

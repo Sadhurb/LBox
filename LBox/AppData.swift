@@ -342,6 +342,14 @@ class AppStoreViewModel: ObservableObject {
         }
     }
     
+    // NEW: Strict Grouping Setting to separate apps by source/details
+    @Published var strictGrouping: Bool = true {
+        didSet {
+            UserDefaults.standard.set(strictGrouping, forKey: "kStrictGrouping")
+            Task { await refreshDisplayApps() }
+        }
+    }
+    
     // Track fetch progress
     @Published var fetchProgress: Int = 0
     @Published var fetchTotal: Int = 0
@@ -364,6 +372,13 @@ class AppStoreViewModel: ObservableObject {
         if let storedSort = UserDefaults.standard.string(forKey: "kRepoSortOrder"),
            let option = RepoSortOption(rawValue: storedSort) {
             self.repoSortOrder = option
+        }
+        
+        // Initialize Strict Grouping (Default to true)
+        if UserDefaults.standard.object(forKey: "kStrictGrouping") != nil {
+            self.strictGrouping = UserDefaults.standard.bool(forKey: "kStrictGrouping")
+        } else {
+            self.strictGrouping = true
         }
         
         loadRepos()
@@ -488,7 +503,6 @@ class AppStoreViewModel: ObservableObject {
         resetReposToDefault()
     }
     
-    // ... [Rest of Repo Management functions: getEnabledLeafRepos, repoExists, getRepo, etc. kept same] ...
     func getEnabledLeafRepos() -> [SavedRepo] {
         func flatten(_ nodes: [SavedRepo]) -> [SavedRepo] {
             var result: [SavedRepo] = []
@@ -952,6 +966,24 @@ class AppStoreViewModel: ObservableObject {
         isLoading = false
     }
     
+    // Helper for consistent key generation across processes
+    nonisolated static func generateGroupingKey(for app: AppItem, strict: Bool) -> String {
+        if strict {
+            // Combine bundleID (or url) + name + repo + description to enforce strict separation
+            let bid = (app.bundleIdentifier != "unknown" && !app.bundleIdentifier.isEmpty) ? app.bundleIdentifier : app.downloadURL
+            let name = app.name
+            let repo = app.sourceRepoName ?? ""
+            let desc = app.localizedDescription ?? ""
+            return "\(bid)|#|\(name)|#|\(repo)|#|\(desc)"
+        } else {
+            // Default grouping: Only Bundle Identifier matters
+            if app.bundleIdentifier != "unknown" && !app.bundleIdentifier.isEmpty {
+                return app.bundleIdentifier
+            }
+            return app.downloadURL
+        }
+    }
+    
     func refreshDisplayApps() async {
         let enabled = getEnabledLeafRepos()
         var allApps: [AppItem] = []
@@ -961,21 +993,18 @@ class AppStoreViewModel: ObservableObject {
     
     private func processApps(_ apps: [AppItem]) async {
         let sortOrder = self.appSortOrder
+        let isStrict = self.strictGrouping // Capture for detached task
         
         // Offload heavy sorting/filtering to background
         let (grouped, displayList) = await Task.detached(priority: .userInitiated) {
-            // Group by Bundle Identifier if valid, otherwise fallback
-            let grouped = Dictionary(grouping: apps) { app -> String in
-                if app.bundleIdentifier != "unknown" && !app.bundleIdentifier.isEmpty {
-                    return app.bundleIdentifier
-                }
-                return app.downloadURL // fallback to distinct URL if no bundle ID
+            // Group using the helper
+            let grouped = Dictionary(grouping: apps) { app in
+                AppStoreViewModel.generateGroupingKey(for: app, strict: isStrict)
             }
             
             var representatives: [AppItem] = []
             for (_, versions) in grouped {
                 // Latest version based on version string comparison (or date)
-                // Using version comparison logic similar to updates for accuracy
                 if let latest = versions.sorted(by: {
                     // Try numeric comparison first, fallback to date
                     let v1 = $0.version
@@ -1012,13 +1041,7 @@ class AppStoreViewModel: ObservableObject {
     
     // Updated to use the correct key logic
     func getVersions(for app: AppItem) -> [AppItem] {
-        let key: String
-        if app.bundleIdentifier != "unknown" && !app.bundleIdentifier.isEmpty {
-            key = app.bundleIdentifier
-        } else {
-            key = app.downloadURL
-        }
-        
+        let key = AppStoreViewModel.generateGroupingKey(for: app, strict: self.strictGrouping)
         guard let list = allAppsByVariant[key] else { return [] }
         
         return list.sorted {
