@@ -891,7 +891,9 @@ class AppStoreViewModel: ObservableObject {
         updateRepoStatus(id: id, status: .loading)
         
         do {
-            let (data, _) = try await URLSession.shared.data(from: url)
+            var request = URLRequest(url: url)
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            let (data, _) = try await URLSession.shared.data(for: request)
             
             // Offload decoding to background thread
             let (decoded, apps) = try await Task.detached {
