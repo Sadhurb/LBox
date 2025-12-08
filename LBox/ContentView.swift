@@ -16,13 +16,17 @@ struct ContentView: View {
     @State private var showConflictAlert = false 
     
     var body: some View {
-        mainTabView
-            .environmentObject(downloadManager)
-            .task { await performInitialSetup() }
-            .onChange(of: viewModel.displayApps.count) { _ in viewModel.checkForUpdates(installedApps: downloadManager.installedApps) }
-            .onChange(of: downloadManager.installedApps) { newApps in viewModel.checkForUpdates(installedApps: newApps) }
-            .onChange(of: showSetupPicker) { isPresented in checkForPickerFailure(isPresented: isPresented) }
-            .onChange(of: scenePhase) { phase in handleScenePhase(phase) }
+        ZStack {
+            mainTabView
+                .environmentObject(downloadManager)
+            
+            InAppNotificationView()
+        }
+        .task { await performInitialSetup() }
+        .onChange(of: viewModel.displayApps.count) { _ in viewModel.checkForUpdates(installedApps: downloadManager.installedApps) }
+        .onChange(of: downloadManager.installedApps) { newApps in viewModel.checkForUpdates(installedApps: newApps) }
+        .onChange(of: showSetupPicker) { isPresented in checkForPickerFailure(isPresented: isPresented) }
+        .onChange(of: scenePhase) { phase in handleScenePhase(phase) }
             
             // Watch pendingInstallation to trigger local alert state
             .onChange(of: downloadManager.pendingInstallation?.id) { newID in
@@ -137,8 +141,13 @@ struct ContentView: View {
         }
     }
     func handleScenePhase(_ phase: ScenePhase) {
+        NotificationManager.shared.isAppInForeground = (phase == .active)
+        
         if phase == .active {
-            if let backup = downloadManager.pendingBackups.first {
+            // Check the backup currently being verified, or fall back to the latest one
+            let backupToCheck = verificationBackup ?? downloadManager.pendingBackups.last
+            
+            if let backup = backupToCheck {
                 if downloadManager.checkUpdateStatus(for: backup) {
                     verificationBackup = nil
                 } else {
@@ -330,6 +339,20 @@ struct InstalledAppItem: View {
             if let ver = app.version { Button("Version: \(ver)") {}.disabled(true) }
             Button("Bundle: \(app.bundleID)") {}.disabled(true)
             Button("File: \(app.url.lastPathComponent)") {}.disabled(true)
+            #if DEBUG
+            Button {
+                let plistURL = app.url.appendingPathComponent("LCAppInfo.plist")
+                if FileManager.default.fileExists(atPath: plistURL.path) {
+                    let activityVC = UIActivityViewController(activityItems: [plistURL], applicationActivities: nil)
+                    if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                       let rootVC = windowScene.windows.first?.rootViewController {
+                        rootVC.present(activityVC, animated: true)
+                    }
+                }
+            } label: {
+                Label("Share LCAppInfo.plist", systemImage: "square.and.arrow.up")
+            }
+            #endif
         }
         .alert("Setup Required", isPresented: $showSetupNeeded) {
             Button("Open LiveContainer") {
@@ -605,6 +628,9 @@ struct SettingsView: View {
                 }
                 Section("About") {
                     Text("LBox v1.1")
+                    #if DEBUG
+                    NavigationLink("Debug Logs") { DebugLogView() }
+                    #endif
                     Button("Reset to Defaults") { confirmReset = true }.foregroundColor(.red)
                 }
             }
